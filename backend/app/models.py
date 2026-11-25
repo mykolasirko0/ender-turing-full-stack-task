@@ -1,8 +1,9 @@
 import uuid
 from datetime import UTC, datetime
+from typing import Any
 
 import sqlalchemy as sa
-from pydantic import ConfigDict, EmailStr
+from pydantic import ConfigDict, EmailStr, field_validator
 from sqlmodel import Field, Relationship, SQLModel
 
 from app.core.permissions import Permission
@@ -58,6 +59,16 @@ class UserUpdate(SQLModel):
     full_name: str | None = Field(default=None, max_length=255)
     password: str | None = Field(default=None, min_length=8, max_length=128)
 
+    # These may be omitted but not sent as null: the columns are NOT NULL (and a
+    # null password can't be hashed), so a null would otherwise be a 500.
+    # role: null is still accepted and means "leave unchanged" (see crud).
+    @field_validator("email", "is_active", "password", mode="before")
+    @classmethod
+    def _reject_explicit_null(cls, value: Any) -> Any:
+        if value is None:
+            raise ValueError("may be omitted but must not be null")
+        return value
+
 
 class UserUpdateMe(SQLModel):
     # Reject unknown fields (e.g. role, is_active) instead of silently dropping
@@ -70,6 +81,15 @@ class UserUpdateMe(SQLModel):
 
     full_name: str | None = Field(default=None, max_length=255)
     email: EmailStr | None = Field(default=None, max_length=255)
+
+    # email may be omitted but not null (NOT NULL column -> would be a 500).
+    # full_name: null stays valid and clears the name.
+    @field_validator("email", mode="before")
+    @classmethod
+    def _reject_explicit_null(cls, value: Any) -> Any:
+        if value is None:
+            raise ValueError("may be omitted but must not be null")
+        return value
 
 
 class UpdatePassword(SQLModel):

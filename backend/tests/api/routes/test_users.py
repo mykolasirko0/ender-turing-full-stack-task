@@ -1,14 +1,15 @@
 import uuid
 from unittest.mock import patch
 
+import pytest
 from fastapi.testclient import TestClient
 from sqlmodel import Session, select
 
 from app import crud
 from app.core.config import settings
 from app.core.security import verify_password
-from app.models import User, UserCreate
-from tests.utils.user import create_random_user
+from app.models import User, UserCreate, UserUpdate
+from tests.utils.user import create_random_user, user_authentication_headers
 from tests.utils.utils import random_email, random_lower_string
 
 
@@ -521,3 +522,64 @@ def test_delete_user_without_privileges(
     )
     assert r.status_code == 403
     assert r.json()["detail"] == "The user doesn't have enough privileges"
+
+
+@pytest.mark.parametrize("field", ["is_active", "email", "password"])
+def test_update_user_rejects_explicit_null(
+    client: TestClient,
+    superuser_token_headers: dict[str, str],
+    db: Session,
+    field: str,
+) -> None:
+    user = create_random_user(db)
+    before = (user.email, user.is_active, user.hashed_password)
+
+    r = client.patch(
+        f"{settings.API_V1_STR}/users/{user.id}",
+        headers=superuser_token_headers,
+        json={field: None},
+    )
+
+    assert r.status_code == 422
+    assert r.json()["detail"][0]["loc"] == ["body", field]
+    db.refresh(user)
+    assert (user.email, user.is_active, user.hashed_password) == before
+
+
+def test_update_user_omitted_fields_still_optional(
+    client: TestClient, superuser_token_headers: dict[str, str], db: Session
+) -> None:
+    user = create_random_user(db)
+    r = client.patch(
+        f"{settings.API_V1_STR}/users/{user.id}",
+        headers=superuser_token_headers,
+        json={"full_name": "Only Name", "role": None},
+    )
+    assert r.status_code == 200
+    assert r.json()["full_name"] == "Only Name"
+    assert r.json()["is_active"] is True
+
+
+def test_update_user_me_rejects_null_email(client: TestClient, db: Session) -> None:
+    user = create_random_user(db)
+    password = random_lower_string()
+    crud.update_user(session=db, db_user=user, user_in=UserUpdate(password=password))
+    headers = user_authentication_headers(
+        client=client, email=user.email, password=password
+    )
+    email_before = user.email
+
+    r = client.patch(
+        f"{settings.API_V1_STR}/users/me", headers=headers, json={"email": None}
+    )
+    assert r.status_code == 422
+    assert r.json()["detail"][0]["loc"] == ["body", "email"]
+    db.refresh(user)
+    assert user.email == email_before
+
+    # full_name: null is still allowed and clears the name.
+    r = client.patch(
+        f"{settings.API_V1_STR}/users/me", headers=headers, json={"full_name": None}
+    )
+    assert r.status_code == 200
+    assert r.json()["full_name"] is None

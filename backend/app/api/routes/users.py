@@ -16,6 +16,7 @@ from app.core.security import get_password_hash, verify_password
 from app.models import (
     Item,
     Message,
+    Role,
     UpdatePassword,
     User,
     UserCreate,
@@ -29,6 +30,50 @@ from app.models import (
 from app.utils import generate_new_account_email, send_email
 
 router = APIRouter(prefix="/users", tags=["users"])
+
+# "Admin" below means "holds users:manage"; the rules are permission-based so
+# they keep working if the role -> permission mapping changes.
+ADMIN_PERMISSION = Permission.USERS_MANAGE
+
+
+def _bad_request(detail: str) -> HTTPException:
+    return HTTPException(status_code=400, detail=detail)
+
+
+def _ensure_not_last_active_admin(*, session: SessionDep, target: User) -> None:
+    """Refuse to remove admin access from the only remaining active admin."""
+    if not (target.is_active and has_permission(target, ADMIN_PERMISSION)):
+        return
+    others = crud.count_active_users_with_permission(
+        session=session, permission=ADMIN_PERMISSION, exclude_id=target.id
+    )
+    if others == 0:
+        raise _bad_request("Cannot remove the last active admin")
+
+
+def _check_admin_rules_for_update(
+    *, session: SessionDep, actor: User, target: User, user_in: UserUpdate
+) -> None:
+    new_role = user_in.role or target.role
+    loses_admin = has_permission(
+        target, ADMIN_PERMISSION
+    ) and ADMIN_PERMISSION not in permissions_for(new_role)
+    deactivates = user_in.is_active is False and target.is_active
+    if target.id == actor.id:
+        if loses_admin:
+            raise _bad_request("Admins cannot remove their own admin access")
+        if deactivates:
+            raise _bad_request("Admins cannot deactivate themselves")
+    if loses_admin or deactivates:
+        _ensure_not_last_active_admin(session=session, target=target)
+
+
+def _check_admin_rules_for_delete(
+    *, session: SessionDep, actor: User, target: User
+) -> None:
+    if target.id == actor.id and has_permission(actor, ADMIN_PERMISSION):
+        raise _bad_request("Admins cannot delete themselves")
+    _ensure_not_last_active_admin(session=session, target=target)
 
 
 @router.get(
@@ -139,12 +184,9 @@ def delete_user_me(session: SessionDep, current_user: CurrentUser) -> Any:
     """
     Delete own user.
     """
-    # Behaviour kept as-is (403) for now; step 5 replaces it with the
-    # admin self-protection / last-admin rules (400).
-    if has_permission(current_user, Permission.USERS_MANAGE):
-        raise HTTPException(
-            status_code=403, detail="Super users are not allowed to delete themselves"
-        )
+    _check_admin_rules_for_delete(
+        session=session, actor=current_user, target=current_user
+    )
     session.delete(current_user)
     session.commit()
     return Message(message="User deleted successfully")
@@ -161,7 +203,8 @@ def register_user(session: SessionDep, user_in: UserRegister) -> Any:
             status_code=400,
             detail="The user with this email already exists in the system",
         )
-    user_create = UserCreate.model_validate(user_in)
+    # Self-registration always yields the least-privileged role.
+    user_create = UserCreate.model_validate(user_in, update={"role": Role.MEMBER})
     user = crud.create_user(session=session, user_create=user_create)
     return user
 
@@ -194,6 +237,7 @@ def read_user_by_id(
 def update_user(
     *,
     session: SessionDep,
+    current_user: CurrentUser,
     user_id: uuid.UUID,
     user_in: UserUpdate,
 ) -> Any:
@@ -213,6 +257,9 @@ def update_user(
             raise HTTPException(
                 status_code=409, detail="User with this email already exists"
             )
+    _check_admin_rules_for_update(
+        session=session, actor=current_user, target=db_user, user_in=user_in
+    )
 
     db_user = crud.update_user(session=session, db_user=db_user, user_in=user_in)
     return db_user
@@ -231,10 +278,7 @@ def delete_user(
     user = session.get(User, user_id)
     if not user:
         raise HTTPException(status_code=404, detail="User not found")
-    if user == current_user:
-        raise HTTPException(
-            status_code=403, detail="Super users are not allowed to delete themselves"
-        )
+    _check_admin_rules_for_delete(session=session, actor=current_user, target=user)
     statement = delete(Item).where(col(Item.owner_id) == user_id)
     session.exec(statement)
     session.delete(user)

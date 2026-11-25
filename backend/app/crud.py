@@ -1,8 +1,9 @@
 import uuid
 from typing import Any
 
-from sqlmodel import Session, select
+from sqlmodel import Session, col, func, select
 
+from app.core.permissions import Permission, permissions_for
 from app.core.security import get_password_hash, verify_password
 from app.models import Item, ItemCreate, Role, User, UserCreate, UserUpdate
 
@@ -42,6 +43,20 @@ def update_user(*, session: Session, db_user: User, user_in: UserUpdate) -> Any:
     session.commit()
     session.refresh(db_user)
     return db_user
+
+
+def count_active_users_with_permission(
+    *, session: Session, permission: Permission, exclude_id: uuid.UUID | None = None
+) -> int:
+    roles = [role for role in Role if permission in permissions_for(role)]
+    statement = (
+        select(func.count())
+        .select_from(User)
+        .where(col(User.is_active), col(User.role).in_(roles))
+    )
+    if exclude_id is not None:
+        statement = statement.where(User.id != exclude_id)
+    return session.exec(statement).one()
 
 
 def get_user_by_email(*, session: Session, email: str) -> User | None:

@@ -457,9 +457,9 @@ def test_delete_user_me_as_superuser(
         f"{settings.API_V1_STR}/users/me",
         headers=superuser_token_headers,
     )
-    assert r.status_code == 403
+    assert r.status_code == 400
     response = r.json()
-    assert response["detail"] == "Super users are not allowed to delete themselves"
+    assert response["detail"] == "Admins cannot delete themselves"
 
 
 def test_delete_user_super_user(
@@ -503,8 +503,8 @@ def test_delete_user_current_super_user_error(
         f"{settings.API_V1_STR}/users/{user_id}",
         headers=superuser_token_headers,
     )
-    assert r.status_code == 403
-    assert r.json()["detail"] == "Super users are not allowed to delete themselves"
+    assert r.status_code == 400
+    assert r.json()["detail"] == "Admins cannot delete themselves"
 
 
 def test_delete_user_without_privileges(

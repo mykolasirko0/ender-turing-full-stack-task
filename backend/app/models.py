@@ -106,6 +106,13 @@ class UsersPublic(SQLModel):
     count: int
 
 
+class UserMetrics(SQLModel):
+    total_users: int
+    active_users: int
+    # Every role is present, with 0 when no user has it.
+    users_by_role: dict[Role, int]
+
+
 # Shared properties
 class ItemBase(SQLModel):
     title: str = Field(min_length=1, max_length=255)

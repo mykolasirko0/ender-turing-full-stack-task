@@ -24,6 +24,7 @@ Start the frontend dev server with bun:
 
 ```bash
 cd frontend
+bun install
 bun run dev
 ```
 

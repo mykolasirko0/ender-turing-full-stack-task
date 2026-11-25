@@ -1,3 +1,4 @@
+import uuid
 from collections.abc import Callable, Generator
 from typing import Annotated
 
@@ -28,22 +29,32 @@ SessionDep = Annotated[Session, Depends(get_db)]
 TokenDep = Annotated[str, Depends(reusable_oauth2)]
 
 
+def _unauthorized(detail: str) -> HTTPException:
+    # 401 = "not (or no longer) authenticated": the frontend logs out on it.
+    # 403 is reserved for authenticated users lacking a permission.
+    return HTTPException(
+        status_code=status.HTTP_401_UNAUTHORIZED,
+        detail=detail,
+        headers={"WWW-Authenticate": "Bearer"},
+    )
+
+
 def get_current_user(session: SessionDep, token: TokenDep) -> User:
+    # The user is reloaded on every request, so role / is_active changes
+    # apply to already-issued tokens immediately.
     try:
         payload = jwt.decode(
             token, settings.SECRET_KEY, algorithms=[security.ALGORITHM]
         )
         token_data = TokenPayload(**payload)
-    except InvalidTokenError, ValidationError:
-        raise HTTPException(
-            status_code=status.HTTP_403_FORBIDDEN,
-            detail="Could not validate credentials",
-        )
-    user = session.get(User, token_data.sub)
+        user_id = uuid.UUID(token_data.sub or "")
+    except InvalidTokenError, ValidationError, ValueError:
+        raise _unauthorized("Could not validate credentials")
+    user = session.get(User, user_id)
     if not user:
-        raise HTTPException(status_code=404, detail="User not found")
+        raise _unauthorized("User not found")
     if not user.is_active:
-        raise HTTPException(status_code=400, detail="Inactive user")
+        raise _unauthorized("Inactive user")
     return user
 
 

@@ -58,6 +58,39 @@ To open a shell in the backend container:
 $ docker compose exec backend bash
 ```
 
+## Roles and Local Demo Users
+
+Users have one role: `admin` (manage users and access), `manager` (view users and metrics, read-only) or `member` (own profile and items only). Permissions per role are defined in `app/core/permissions.py`.
+
+To try each role locally, create a demo manager and member (the admin is `FIRST_SUPERUSER` from `.env`):
+
+```bash
+docker compose exec backend python app/demo_data.py
+```
+
+| Role    | Email                 | Password                                 |
+|---------|-----------------------|------------------------------------------|
+| admin   | `admin@example.com`   | `FIRST_SUPERUSER_PASSWORD` from `.env`   |
+| manager | `manager@example.com` | `demo-password`                          |
+| member  | `member@example.com`  | `demo-password`                          |
+
+The script is idempotent (re-running resets both users to the state above) and refuses to run unless `FASTAPI_ENV=development`.
+
+To run the backend tests against the running stack (`backend/tests` is not synced into the container, so copy it in first):
+
+```bash
+docker compose exec backend rm -rf /app/backend/tests
+docker compose cp backend/tests backend:/app/backend/
+docker compose exec backend bash scripts/tests-start.sh
+```
+
+**The backend tests delete every user when they finish**, including the admin and the demo users. Re-create them afterwards:
+
+```bash
+docker compose exec backend python app/initial_data.py
+docker compose exec backend python app/demo_data.py
+```
+
 ## Backend Tests
 
 To test the backend from the `backend` directory, run:

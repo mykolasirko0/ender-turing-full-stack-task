@@ -4,12 +4,21 @@ from typing import Any
 from sqlmodel import Session, select
 
 from app.core.security import get_password_hash, verify_password
-from app.models import Item, ItemCreate, User, UserCreate, UserUpdate
+from app.models import Item, ItemCreate, Role, User, UserCreate, UserUpdate
+
+
+def _is_superuser_for(role: Role) -> bool:
+    # is_superuser is a legacy mirror of role; it is never read for authorization.
+    return role == Role.ADMIN
 
 
 def create_user(*, session: Session, user_create: UserCreate) -> User:
     db_obj = User.model_validate(
-        user_create, update={"hashed_password": get_password_hash(user_create.password)}
+        user_create,
+        update={
+            "hashed_password": get_password_hash(user_create.password),
+            "is_superuser": _is_superuser_for(user_create.role),
+        },
     )
     session.add(db_obj)
     session.commit()
@@ -19,12 +28,16 @@ def create_user(*, session: Session, user_create: UserCreate) -> User:
 
 def update_user(*, session: Session, db_user: User, user_in: UserUpdate) -> Any:
     user_data = user_in.model_dump(exclude_unset=True)
+    user_data.pop("is_superuser", None)
+    if user_data.get("role") is None:
+        user_data.pop("role", None)
     extra_data = {}
     if "password" in user_data:
         password = user_data["password"]
         hashed_password = get_password_hash(password)
         extra_data["hashed_password"] = hashed_password
     db_user.sqlmodel_update(user_data, update=extra_data)
+    db_user.is_superuser = _is_superuser_for(Role(db_user.role))
     session.add(db_user)
     session.commit()
     session.refresh(db_user)

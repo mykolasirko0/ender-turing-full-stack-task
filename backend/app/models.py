@@ -1,6 +1,8 @@
 import uuid
 from datetime import UTC, datetime
+from enum import StrEnum
 
+import sqlalchemy as sa
 from pydantic import EmailStr
 from sqlmodel import Field, Relationship, SQLModel
 
@@ -9,11 +11,33 @@ def get_datetime_utc() -> datetime:
     return datetime.now(UTC)
 
 
+class Role(StrEnum):
+    ADMIN = "admin"
+    MANAGER = "manager"
+    MEMBER = "member"
+
+
+ROLE_CHECK_SQL = "role IN ('admin', 'manager', 'member')"
+
+
 # Shared properties
 class UserBase(SQLModel):
     email: EmailStr = Field(unique=True, index=True, max_length=255)
     is_active: bool = True
     is_superuser: bool = False
+    role: Role = Field(
+        default=Role.MEMBER,
+        # Non-native enum: stored as VARCHAR(20) (CHECK lives in __table_args__),
+        # but loaded back as Role instead of a plain str.
+        sa_type=sa.Enum(
+            Role,
+            native_enum=False,
+            create_constraint=False,
+            length=20,
+            values_callable=lambda e: [m.value for m in e],
+        ),
+        sa_column_kwargs={"server_default": Role.MEMBER.value},
+    )
     full_name: str | None = Field(default=None, max_length=255)
 
 
@@ -33,6 +57,7 @@ class UserUpdate(SQLModel):
     email: EmailStr | None = Field(default=None, max_length=255)
     is_active: bool | None = None
     is_superuser: bool | None = None
+    role: Role | None = None
     full_name: str | None = Field(default=None, max_length=255)
     password: str | None = Field(default=None, min_length=8, max_length=128)
 
@@ -49,6 +74,8 @@ class UpdatePassword(SQLModel):
 
 # Database model, database table inferred from class name
 class User(UserBase, table=True):
+    __table_args__ = (sa.CheckConstraint(ROLE_CHECK_SQL, name="ck_user_role"),)
+
     id: uuid.UUID = Field(default_factory=uuid.uuid4, primary_key=True)
     hashed_password: str
     created_at: datetime | None = Field(default_factory=get_datetime_utc)

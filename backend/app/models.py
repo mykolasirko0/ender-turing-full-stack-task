@@ -2,8 +2,10 @@ import uuid
 from datetime import UTC, datetime
 
 import sqlalchemy as sa
-from pydantic import EmailStr
+from pydantic import ConfigDict, EmailStr
 from sqlmodel import Field, Relationship, SQLModel
+
+from app.core.permissions import Permission
 
 # Re-exported so `from app.models import Role` keeps working; Role lives in
 # app.core.permissions to avoid a models <-> permissions import cycle.
@@ -21,7 +23,6 @@ ROLE_CHECK_SQL = "role IN ('admin', 'manager', 'member')"
 class UserBase(SQLModel):
     email: EmailStr = Field(unique=True, index=True, max_length=255)
     is_active: bool = True
-    is_superuser: bool = False
     role: Role = Field(
         default=Role.MEMBER,
         # Non-native enum: stored as VARCHAR(20) (CHECK lives in __table_args__),
@@ -53,13 +54,20 @@ class UserRegister(SQLModel):
 class UserUpdate(SQLModel):
     email: EmailStr | None = Field(default=None, max_length=255)
     is_active: bool | None = None
-    is_superuser: bool | None = None
     role: Role | None = None
     full_name: str | None = Field(default=None, max_length=255)
     password: str | None = Field(default=None, min_length=8, max_length=128)
 
 
 class UserUpdateMe(SQLModel):
+    # Reject unknown fields (e.g. role, is_active) instead of silently dropping
+    # them, so self-service privilege changes fail loudly with 422.
+    # Must be set via model_config: the `class X(SQLModel, extra=...)` form is
+    # silently ignored by SQLModel's metaclass. SQLModel types model_config as
+    # its private SQLModelConfig (ConfigDict + table-only keys), so the public
+    # ConfigDict needs an ignore for each type checker.
+    model_config = ConfigDict(extra="forbid")  # type: ignore[assignment]  # ty: ignore[invalid-assignment]
+
     full_name: str | None = Field(default=None, max_length=255)
     email: EmailStr | None = Field(default=None, max_length=255)
 
@@ -75,6 +83,9 @@ class User(UserBase, table=True):
 
     id: uuid.UUID = Field(default_factory=uuid.uuid4, primary_key=True)
     hashed_password: str
+    # Legacy column, kept in sync by crud (role == admin). Never used for
+    # authorization and not exposed through the API.
+    is_superuser: bool = False
     created_at: datetime | None = Field(default_factory=get_datetime_utc)
     items: list[Item] = Relationship(back_populates="owner", cascade_delete=True)
 
@@ -83,6 +94,11 @@ class User(UserBase, table=True):
 class UserPublic(UserBase):
     id: uuid.UUID
     created_at: datetime | None = None
+
+
+# Current user, with the permissions their role grants (for the frontend to mirror)
+class UserMe(UserPublic):
+    permissions: list[Permission]
 
 
 class UsersPublic(SQLModel):

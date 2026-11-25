@@ -69,8 +69,13 @@ def test_check_if_user_is_superuser_normal_user(db: Session) -> None:
 
 
 def test_create_user_ignores_is_superuser_input(db: Session) -> None:
-    user_in = UserCreate(
-        email=random_email(), password=random_lower_string(), is_superuser=True
+    # is_superuser is no longer part of UserCreate; a stray value is dropped.
+    user_in = UserCreate.model_validate(
+        {
+            "email": random_email(),
+            "password": random_lower_string(),
+            "is_superuser": True,
+        }
     )
     user = crud.create_user(session=db, user_create=user_in)
     assert user.role == Role.MEMBER
@@ -104,7 +109,11 @@ def test_update_user_role_syncs_is_superuser(db: Session) -> None:
 def test_update_user_ignores_is_superuser_input(db: Session) -> None:
     user_in = UserCreate(email=random_email(), password=random_lower_string())
     user = crud.create_user(session=db, user_create=user_in)
-    crud.update_user(session=db, db_user=user, user_in=UserUpdate(is_superuser=True))
+    crud.update_user(
+        session=db,
+        db_user=user,
+        user_in=UserUpdate.model_validate({"is_superuser": True}),
+    )
     db.refresh(user)
     assert user.role == Role.MEMBER
     assert user.is_superuser is False
@@ -115,7 +124,11 @@ def test_update_user_ignores_is_superuser_input(db: Session) -> None:
             email=random_email(), password=random_lower_string(), role=Role.ADMIN
         ),
     )
-    crud.update_user(session=db, db_user=admin, user_in=UserUpdate(is_superuser=False))
+    crud.update_user(
+        session=db,
+        db_user=admin,
+        user_in=UserUpdate.model_validate({"is_superuser": False}),
+    )
     db.refresh(admin)
     assert admin.role == Role.ADMIN
     assert admin.is_superuser is True

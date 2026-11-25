@@ -4,7 +4,7 @@ import ChangePassword from "@/components/UserSettings/ChangePassword"
 import DeleteAccount from "@/components/UserSettings/DeleteAccount"
 import UserInformation from "@/components/UserSettings/UserInformation"
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs"
-import useAuth from "@/hooks/useAuth"
+import usePermissions from "@/hooks/usePermissions"
 
 const tabsConfig = [
   { value: "my-profile", title: "My profile", component: UserInformation },
@@ -24,9 +24,10 @@ export const Route = createFileRoute("/_layout/settings")({
 })
 
 function UserSettings() {
-  const { user: currentUser } = useAuth()
-  const finalTabs = currentUser?.is_superuser
-    ? tabsConfig.slice(0, 3)
+  const { user: currentUser, can } = usePermissions()
+  // Admins can't delete themselves (backend returns 400), so hide Danger zone.
+  const finalTabs = can("users:manage")
+    ? tabsConfig.filter((tab) => tab.value !== "danger-zone")
     : tabsConfig
 
   if (!currentUser) {

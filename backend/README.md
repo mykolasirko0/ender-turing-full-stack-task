@@ -58,6 +58,10 @@ To open a shell in the backend container:
 $ docker compose exec backend bash
 ```
 
+## Roles, Demo Users and Running Tests
+
+Roles, the demo user script, how to run the backend tests against the running stack, and the warning that they delete all users are documented in the [Role-Based Access Control section of the root README](../README.md#role-based-access-control).
+
 ## Backend Tests
 
 To test the backend from the `backend` directory, run:

@@ -3,6 +3,7 @@ import {
   QueryCache,
   QueryClient,
   QueryClientProvider,
+  type QueryKey,
 } from "@tanstack/react-query"
 import { createRouter, RouterProvider } from "@tanstack/react-router"
 import { AxiosError } from "axios"
@@ -19,21 +20,43 @@ client.setConfig({
   auth: () => localStorage.getItem("access_token") || "",
 })
 
-const handleApiError = (error: Error) => {
-  if (
-    error instanceof AxiosError &&
-    [401, 403].includes(error.response?.status ?? 0)
-  ) {
+const CURRENT_USER_KEY = "currentUser"
+
+// 401: not (or no longer) authenticated -> log out.
+// 403: authenticated but not allowed -> the user's role may have changed, so
+// refetch /users/me; the sidebar, guards and pages then re-render from the
+// fresh permissions. The failing call's own onError still shows its toast.
+const handleApiError = (error: Error, failedKey?: QueryKey) => {
+  if (!(error instanceof AxiosError)) return
+  const status = error.response?.status
+  if (status === 401) {
     localStorage.removeItem("access_token")
     window.location.href = "/login"
+  } else if (status === 403 && failedKey?.[0] !== CURRENT_USER_KEY) {
+    // (guard against a refetch loop should /users/me itself ever return 403)
+    queryClient.invalidateQueries({ queryKey: [CURRENT_USER_KEY] })
   }
 }
+const MAX_QUERY_RETRIES = 3
+
+// Auth errors won't fix themselves: don't retry, so the handler above runs
+// right away instead of after the default retry backoff (~7s).
+const shouldRetryQuery = (failureCount: number, error: Error) => {
+  const status =
+    error instanceof AxiosError ? error.response?.status : undefined
+  if (status === 401 || status === 403) return false
+  return failureCount < MAX_QUERY_RETRIES
+}
+
 const queryClient = new QueryClient({
+  defaultOptions: {
+    queries: { retry: shouldRetryQuery },
+  },
   queryCache: new QueryCache({
-    onError: handleApiError,
+    onError: (error, query) => handleApiError(error, query.queryKey),
   }),
   mutationCache: new MutationCache({
-    onError: handleApiError,
+    onError: (error) => handleApiError(error),
   }),
 })
 

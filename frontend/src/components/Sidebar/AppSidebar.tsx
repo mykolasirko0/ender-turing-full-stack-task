@@ -1,5 +1,6 @@
-import { Briefcase, Home, Users } from "lucide-react"
+import { Briefcase, ChartColumn, Home, Users } from "lucide-react"
 
+import type { Permission } from "@/client"
 import { SidebarAppearance } from "@/components/Common/Appearance"
 import { Logo } from "@/components/Common/Logo"
 import {
@@ -8,21 +9,31 @@ import {
   SidebarFooter,
   SidebarHeader,
 } from "@/components/ui/sidebar"
-import useAuth from "@/hooks/useAuth"
+import usePermissions from "@/hooks/usePermissions"
 import { type Item, Main } from "./Main"
 import { User } from "./User"
 
-const baseItems: Item[] = [
+type NavItem = Item & { permission?: Permission }
+
+// Keep each `permission` in sync with the route's beforeLoad guard.
+const navItems: NavItem[] = [
   { icon: Home, title: "Dashboard", path: "/" },
   { icon: Briefcase, title: "Items", path: "/items" },
+  {
+    icon: ChartColumn,
+    title: "Metrics",
+    path: "/metrics",
+    permission: "metrics:read",
+  },
+  { icon: Users, title: "Admin", path: "/admin", permission: "users:read" },
 ]
 
 export function AppSidebar() {
-  const { user: currentUser } = useAuth()
+  const { user: currentUser, can } = usePermissions()
 
-  const items = currentUser?.is_superuser
-    ? [...baseItems, { icon: Users, title: "Admin", path: "/admin" }]
-    : baseItems
+  const items = navItems.filter(
+    (item) => !item.permission || can(item.permission),
+  )
 
   return (
     <Sidebar collapsible="icon">

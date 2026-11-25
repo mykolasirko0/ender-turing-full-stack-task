@@ -95,9 +95,10 @@ def test_update_user_role_syncs_is_superuser(db: Session) -> None:
     assert user.is_superuser is True
 
     crud.update_user(session=db, db_user=user, user_in=UserUpdate(role=Role.MANAGER))
-    db.refresh(user)
-    assert user.role == Role.MANAGER
-    assert user.is_superuser is False
+    demoted = db.get(User, user.id)
+    assert demoted
+    assert demoted.role == Role.MANAGER
+    assert demoted.is_superuser is False
 
 
 def test_update_user_ignores_is_superuser_input(db: Session) -> None:

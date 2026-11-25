@@ -1,20 +1,17 @@
 import uuid
 from datetime import UTC, datetime
-from enum import StrEnum
 
 import sqlalchemy as sa
 from pydantic import EmailStr
 from sqlmodel import Field, Relationship, SQLModel
 
+# Re-exported so `from app.models import Role` keeps working; Role lives in
+# app.core.permissions to avoid a models <-> permissions import cycle.
+from app.core.permissions import Role as Role
+
 
 def get_datetime_utc() -> datetime:
     return datetime.now(UTC)
-
-
-class Role(StrEnum):
-    ADMIN = "admin"
-    MANAGER = "manager"
-    MEMBER = "member"
 
 
 ROLE_CHECK_SQL = "role IN ('admin', 'manager', 'member')"
